@@ -22,6 +22,7 @@ repository = "https://github.com/thin-edge/thin-edge.io"
 [workspace.dependencies]
 # workspace crates
 aws_mapper_ext = { path = "crates/extensions/aws_mapper_ext" }
+tb_mapper_ext = { path = "crates/extensions/tb_mapper_ext" }
 axum_tls = { path = "crates/common/axum_tls" }
 az_mapper_ext = { path = "crates/extensions/az_mapper_ext" }
 batcher = { path = "crates/common/batcher" }
