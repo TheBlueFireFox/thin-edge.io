@@ -61,6 +61,7 @@ const DEFAULT_ROOT_CERT_PATH: &str = "/etc/ssl/certs";
 pub const C8Y_MQTT_PAYLOAD_LIMIT: u32 = 16184; // 16 KB
 pub const AZ_MQTT_PAYLOAD_LIMIT: u32 = 262144; // 256 KB
 pub const AWS_MQTT_PAYLOAD_LIMIT: u32 = 131072; // 128 KB
+pub const TB_MQTT_PAYLOAD_LIMIT: u32 = 65536; // 64 KB
 
 pub trait OptionalConfigError<T> {
     fn or_err(&self) -> Result<&T, ReadError>;
@@ -576,6 +577,83 @@ define_tedge_config! {
         topics: TemplatesSet,
     },
 
+    #[tedge_config(multi)]
+    tb: {
+        /// Endpoint URL of thingsboard IoT tenant
+        #[tedge_config(example = "your-endpoint.thingsboard.io")]
+        url: ConnectUrl,
+
+        /// The path where thingsboard IoT root certificate(s) are stored
+        #[tedge_config(note = "The value can be a directory path as well as the path of the certificate file.")]
+        #[tedge_config(example = "/etc/tedge/tb-trusted-root-certificates.pem", default(function = "default_root_cert_path"))]
+        root_cert_path: AbsolutePath,
+
+        device: {
+            /// Identifier of the device within the fleet. It must be globally
+            /// unique and is derived from the device certificate.
+            #[tedge_config(reader(function = "tb_device_id"))]
+            #[tedge_config(default(from_optional_key = "device.id"))]
+            #[tedge_config(example = "Raspberrypi-4d18303a-6d3a-11eb-b1a6-175f6bb72665")]
+            #[doku(as = "String")]
+            id: Result<String, ReadError>,
+
+            /// Path where the device's private key is stored
+            #[tedge_config(example = "/etc/tedge/device-certs/tedge-private-key.pem", default(from_key = "device.key_path"))]
+            key_path: AbsolutePath,
+
+            /// Path where the device's certificate is stored
+            #[tedge_config(example = "/etc/tedge/device-certs/tedge-certificate.pem", default(from_key = "device.cert_path"))]
+            cert_path: AbsolutePath,
+
+            /// Path where the device's certificate signing request is stored
+            #[tedge_config(example = "/etc/tedge/device-certs/tedge.csr", default(from_key = "device.csr_path"))]
+            csr_path: AbsolutePath,
+
+            /// A PKCS#11 URI of the private key.
+            ///
+            /// See RFC #7512.
+            #[tedge_config(example = "pkcs11:model=PKCS%2315%20emulated")]
+            key_uri: Arc<str>,
+        },
+
+        mapper: {
+            /// Whether the Tb IoT mapper should add a timestamp or not
+            #[tedge_config(example = "true")]
+            #[tedge_config(default(value = true))]
+            timestamp: bool,
+
+            /// The format that will be used by the mapper when sending timestamps to Tb IoT
+            #[tedge_config(example = "rfc-3339")]
+            #[tedge_config(example = "unix")]
+            #[tedge_config(default(variable = "TimeFormat::Unix"))]
+            timestamp_format: TimeFormat,
+
+            mqtt: {
+                /// The maximum message payload size that can be mapped to the cloud via MQTT
+                #[tedge_config(example = "131072", default(function = "tb_mqtt_payload_limit"))]
+                max_payload_size: MqttPayloadLimit,
+            }
+        },
+
+        bridge: {
+            /// The topic prefix that will be used for the bridge MQTT topic. For instance,
+            /// if this is set to "aws", then messages published to `aws/shadow/#` will be
+            /// forwarded to AWS on the `$aws/things/shadow/#` topic
+            #[tedge_config(example = "tb", default(function = "tb_topic_prefix"))]
+            topic_prefix: TopicPrefix,
+
+
+            /// The amount of time after which the bridge should send a ping if no other traffic has occurred
+            #[tedge_config(example = "60s", default(from_str = "60s"))]
+            keepalive_interval: SecondsOrHumanTime,
+        },
+
+        /// Set of MQTT topics the tb IoT mapper should subscribe to
+        #[tedge_config(example = "te/+/+/+/+/a/+,te/+/+/+/+/m/+,te/+/+/+/+/e/+")]
+        #[tedge_config(default(value = "te/+/+/+/+/m/+,te/+/+/+/+/e/+,te/+/+/+/+/a/+,te/+/+/+/+/status/health"))]
+        topics: TemplatesSet,
+    },
+
     mqtt: {
         /// MQTT topic root
         #[tedge_config(default(value = "te"))]
@@ -929,7 +1007,20 @@ impl TEdgeConfigReader {
                     vec![]
                 })
             });
-            c8y_roots.chain(az_roots).chain(aws_roots).collect()
+            let tb_roots = self.tb.entries().flat_map(|(key, tb)| {
+                read_trust_store(&tb.root_cert_path).unwrap_or_else(move |e| {
+                    error!(
+                        "Unable to read certificates from {}: {e:?}",
+                        ReadableKey::TbRootCertPath(key.map(<_>::to_owned))
+                    );
+                    vec![]
+                })
+            });
+            c8y_roots
+                .chain(az_roots)
+                .chain(aws_roots)
+                .chain(tb_roots)
+                .collect()
         });
 
         let proxy = if let Some(address) = self.proxy.address.or_none() {
@@ -1083,6 +1174,24 @@ impl CloudConfig for TEdgeConfigReaderAws {
     }
 }
 
+impl CloudConfig for TEdgeConfigReaderTb {
+    fn device_key_path(&self) -> &Utf8Path {
+        &self.device.key_path
+    }
+
+    fn device_cert_path(&self) -> &Utf8Path {
+        &self.device.cert_path
+    }
+
+    fn root_cert_path(&self) -> &Utf8Path {
+        &self.root_cert_path
+    }
+
+    fn key_uri(&self) -> Option<Arc<str>> {
+        self.device.key_uri.or_none().cloned()
+    }
+}
+
 fn c8y_topic_prefix() -> TopicPrefix {
     TopicPrefix::try_new("c8y").unwrap()
 }
@@ -1095,6 +1204,10 @@ fn aws_topic_prefix() -> TopicPrefix {
     TopicPrefix::try_new("aws").unwrap()
 }
 
+fn tb_topic_prefix() -> TopicPrefix {
+    TopicPrefix::try_new("tb").unwrap()
+}
+
 fn c8y_mqtt_payload_limit() -> MqttPayloadLimit {
     C8Y_MQTT_PAYLOAD_LIMIT.try_into().unwrap()
 }
@@ -1105,6 +1218,10 @@ fn az_mqtt_payload_limit() -> MqttPayloadLimit {
 
 fn aws_mqtt_payload_limit() -> MqttPayloadLimit {
     AWS_MQTT_PAYLOAD_LIMIT.try_into().unwrap()
+}
+
+fn tb_mqtt_payload_limit() -> MqttPayloadLimit {
+    TB_MQTT_PAYLOAD_LIMIT.try_into().unwrap()
 }
 
 fn default_http_bind_address(dto: &TEdgeConfigDto) -> IpAddr {
@@ -1168,6 +1285,20 @@ fn aws_device_id(
 ) -> Result<String, ReadError> {
     match (
         device_id_from_cert(&aws_device.cert_path),
+        dto_value.or_none(),
+    ) {
+        (Ok(common_name), _) => Ok(common_name),
+        (Err(_), Some(dto_value)) => Ok(dto_value.to_string()),
+        (Err(err), None) => Err(err),
+    }
+}
+
+fn tb_device_id(
+    tb_device: &TEdgeConfigReaderTbDevice,
+    dto_value: &OptionalConfig<String>,
+) -> Result<String, ReadError> {
+    match (
+        device_id_from_cert(&tb_device.cert_path),
         dto_value.or_none(),
     ) {
         (Ok(common_name), _) => Ok(common_name),

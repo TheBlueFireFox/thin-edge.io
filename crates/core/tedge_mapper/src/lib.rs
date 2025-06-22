@@ -16,6 +16,9 @@ use tedge_config::log_init;
 use tedge_config::tedge_toml::ProfileName;
 use tracing::log::warn;
 
+#[cfg(feature = "tb")]
+mod tb;
+
 #[cfg(feature = "aws")]
 mod aws;
 #[cfg(feature = "azure")]

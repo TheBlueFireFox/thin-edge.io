@@ -4486,6 +4486,7 @@ dependencies = [
  "collectd_ext",
  "flockfile",
  "mqtt_channel",
+ "tb_mapper_ext",
  "tedge_actors",
  "tedge_api",
  "tedge_config",

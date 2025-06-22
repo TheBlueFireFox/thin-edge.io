@@ -38,12 +38,16 @@ tedge_uploader_ext = { workspace = true }
 tracing = { workspace = true }
 yansi = { workspace = true }
 
+tb_mapper_ext = { workspace = true, optional = true }
+
 [features]
-default = ["aws", "azure", "c8y"]
+default = ["aws", "azure", "c8y", "tb"]
 aws = ["dep:aws_mapper_ext"]
 azure = ["dep:az_mapper_ext"]
 c8y = ["dep:c8y_mapper_ext", "dep:c8y_api", "dep:c8y_auth_proxy"]
 integration-test = []
+
+tb = ["dep:tb_mapper_ext"]
 
 [lints]
 workspace = true
