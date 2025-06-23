@@ -45,17 +45,16 @@ impl TbConverter {
     }
 
     fn try_convert(&mut self, input: &MqttMessage) -> Result<Vec<MqttMessage>, ConversionError> {
-        todo!()
-        // let messages = match self.mqtt_schema.entity_channel_of(&input.topic) {
-        //     Ok((source, channel)) => self.try_convert_te_topics(source, channel, input),
-        //     Err(_) => Ok(vec![]),
-        // }?;
+        let messages = match self.mqtt_schema.entity_channel_of(&input.topic) {
+            Ok((source, channel)) => self.try_convert_te_topics(source, channel, input),
+            Err(_) => Ok(vec![]),
+        }?;
 
-        // for message in &messages {
-        //     self.size_threshold.validate(message)?;
-        // }
+        for message in &messages {
+            self.size_threshold.validate(message)?;
+        }
 
-        // Ok(messages)
+        Ok(messages)
     }
 
     //    pub fn with_threshold(self, size_threshold: SizeThreshold) -> Self {
@@ -78,110 +77,112 @@ impl TbConverter {
     //        Ok(messages)
     //    }
 
-    //    fn try_convert_te_topics(
-    //        &mut self,
-    //        source: EntityTopicId,
-    //        channel: Channel,
-    //        input: &MqttMessage,
-    //    ) -> Result<Vec<MqttMessage>, ConversionError> {
-    //        // don't convert mosquitto bridge notification topic
-    //        // https://github.com/thin-edge/thin-edge.io/issues/2236
-    //        if input
-    //            .payload
-    //            .as_str()?
-    //            .parse::<u8>()
-    //            .is_ok_and(|n| n == 0 || n == 1)
-    //            && channel == Channel::Health
-    //        {
-    //            return Ok(vec![]);
-    //        }
+    fn try_convert_te_topics(
+        &mut self,
+        source: EntityTopicId,
+        channel: Channel,
+        input: &MqttMessage,
+    ) -> Result<Vec<MqttMessage>, ConversionError> {
+        // don't convert mosquitto bridge notification topic
+        // https://github.com/thin-edge/thin-edge.io/issues/2236
+        if input
+            .payload
+            .as_str()?
+            .parse::<u8>()
+            .is_ok_and(|n| n == 0 || n == 1)
+            && channel == Channel::Health
+        {
+            return Ok(vec![]);
+        }
 
-    //        match channel {
-    //            Channel::Measurement {
-    //                measurement_type: type_name,
-    //            }
-    //            | Channel::Event {
-    //                event_type: type_name,
-    //            }
-    //            | Channel::Alarm {
-    //                alarm_type: type_name,
-    //            } => self.convert_telemetry_message(input, source, &type_name),
+        match channel {
+            Channel::Measurement {
+                measurement_type: type_name,
+            }
+            | Channel::Event {
+                event_type: type_name,
+            }
+            | Channel::Alarm {
+                alarm_type: type_name,
+            } => self.convert_telemetry_message(input, source, &type_name),
 
-    //            Channel::Health => self.convert_health_message(&source, input),
+            Channel::Health => self.convert_health_message(&source, input),
 
-    //            _ => Ok(vec![]),
-    //        }
-    //    }
+            _ => Ok(vec![]),
+        }
+    }
 
-    //    fn convert_health_message(
-    //        &self,
-    //        source: &EntityTopicId,
-    //        input: &MqttMessage,
-    //    ) -> Result<Vec<MqttMessage>, ConversionError> {
-    //        let topic_prefix = &self.topic_prefix;
-    //        let source = normalize_name(source);
-    //        let out_topic = format!("{topic_prefix}/td/{source}/status/health");
-    //        match self.with_timestamp(input) {
-    //            Ok(payload) => {
-    //                let output = MqttMessage::new(&Topic::new(&out_topic).unwrap(), payload);
-    //                Ok(vec![output])
-    //            }
-    //            Err(err) => {
-    //                error!("Could not add timestamp to payload for {out_topic}: {err}. Skipping");
-    //                Ok(vec![])
-    //            }
-    //        }
-    //    }
+    fn convert_health_message(
+        &self,
+        source: &EntityTopicId,
+        input: &MqttMessage,
+    ) -> Result<Vec<MqttMessage>, ConversionError> {
+        let topic_prefix = &self.topic_prefix;
+        let source = normalize_name(source);
+        let out_topic = format!("{topic_prefix}/td/{source}/status/health");
+        match self.with_timestamp(input) {
+            Ok(payload) => {
+                let output = MqttMessage::new(&Topic::new(&out_topic).unwrap(), payload);
+                Ok(vec![output])
+            }
+            Err(err) => {
+                error!("Could not add timestamp to payload for {out_topic}: {err}. Skipping");
+                Ok(vec![])
+            }
+        }
+    }
 
-    //    fn convert_telemetry_message(
-    //        &mut self,
-    //        input: &MqttMessage,
-    //        source: EntityTopicId,
-    //        telemetry_type: &String,
-    //    ) -> Result<Vec<MqttMessage>, ConversionError> {
-    //        let topic_prefix = &self.topic_prefix;
-    //        let payload = match self.with_timestamp(input) {
-    //            Ok(payload) => payload,
-    //            Err(err) => {
-    //                error!("Could not add timestamp to payload: {err}. Skipping");
-    //                return Ok(vec![]);
-    //            }
-    //        };
-    //        let source = normalize_name(&source);
-    //        // XXX: should match on `Channel` instead
-    //        let out_topic = match input.topic.name.split('/').collect::<Vec<_>>()[..] {
-    //            [_, _, _, _, _, "m", _] => {
-    //                Topic::new_unchecked(&format!("{topic_prefix}/td/{source}/m/{telemetry_type}"))
-    //            }
-    //            [_, _, _, _, _, "e", _] => {
-    //                Topic::new_unchecked(&format!("{topic_prefix}/td/{source}/e/{telemetry_type}"))
-    //            }
-    //            [_, _, _, _, _, "a", _] => {
-    //                Topic::new_unchecked(&format!("{topic_prefix}/td/{source}/a/{telemetry_type}"))
-    //            }
-    //            _ => return Ok(vec![]),
-    //        };
+    fn convert_telemetry_message(
+        &mut self,
+        input: &MqttMessage,
+        source: EntityTopicId,
+        telemetry_type: &String,
+    ) -> Result<Vec<MqttMessage>, ConversionError> {
+        eprintln!("TELEMETRY: {}", input);
 
-    //        let output = MqttMessage::new(&out_topic, payload);
-    //        self.size_threshold.validate(&output)?;
-    //        Ok(vec![output])
-    //    }
+        let topic_prefix = &self.topic_prefix;
+        let payload = match self.with_timestamp(input) {
+            Ok(payload) => payload,
+            Err(err) => {
+                error!("Could not add timestamp to payload: {err}. Skipping");
+                return Ok(vec![]);
+            }
+        };
+        let source = normalize_name(&source);
+        // XXX: should match on `Channel` instead
+        let out_topic = match input.topic.name.split('/').collect::<Vec<_>>()[..] {
+            [_, _, _, _, _, "m", _] => {
+                Topic::new_unchecked(&format!("{topic_prefix}/td/{source}/m/{telemetry_type}"))
+            }
+            [_, _, _, _, _, "e", _] => {
+                Topic::new_unchecked(&format!("{topic_prefix}/td/{source}/e/{telemetry_type}"))
+            }
+            [_, _, _, _, _, "a", _] => {
+                Topic::new_unchecked(&format!("{topic_prefix}/td/{source}/a/{telemetry_type}"))
+            }
+            _ => return Ok(vec![]),
+        };
 
-    //    fn with_timestamp(&self, input: &MqttMessage) -> Result<String, ConversionError> {
-    //        let mut payload: Map<String, Value> = serde_json::from_slice(input.payload.as_bytes())?;
+        let output = MqttMessage::new(&out_topic, payload);
+        self.size_threshold.validate(&output)?;
+        Ok(vec![output])
+    }
 
-    //        let time = match payload.remove("time") {
-    //            Some(time) => Some(self.time_format.reformat_json(time)?),
-    //            None if self.add_timestamp => Some(self.time_format.to_json(self.clock.now())?),
-    //            None => None,
-    //        };
+    fn with_timestamp(&self, input: &MqttMessage) -> Result<String, ConversionError> {
+        let mut payload: Map<String, Value> = serde_json::from_slice(input.payload.as_bytes())?;
 
-    //        if let Some(time) = time {
-    //            payload.insert("time".to_owned(), time);
-    //        }
+        let time = match payload.remove("time") {
+            Some(time) => Some(self.time_format.reformat_json(time)?),
+            None if self.add_timestamp => Some(self.time_format.to_json(self.clock.now())?),
+            None => None,
+        };
 
-    //        Ok(serde_json::to_string(&payload)?)
-    //    }
+        if let Some(time) = time {
+            payload.insert("time".to_owned(), time);
+        }
+
+        Ok(serde_json::to_string(&payload)?)
+    }
 
     fn wrap_errors(
         &self,

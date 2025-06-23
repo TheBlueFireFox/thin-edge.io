@@ -1,5 +1,8 @@
 use std::fmt;
 
+#[cfg(feature = "tb")]
+use crate::tb::mapper::TbMapper;
+
 #[cfg(feature = "aws")]
 use crate::aws::mapper::AwsMapper;
 #[cfg(feature = "azure")]
@@ -14,6 +17,7 @@ use flockfile::check_another_instance_is_not_running;
 use tedge_config::cli::CommonArgs;
 use tedge_config::log_init;
 use tedge_config::tedge_toml::ProfileName;
+use tracing::info;
 use tracing::log::warn;
 
 #[cfg(feature = "tb")]
@@ -48,6 +52,8 @@ macro_rules! read_and_set_var {
 }
 
 fn lookup_component(component_name: MapperName) -> Box<dyn TEdgeComponent> {
+    info!("COMPONENT <{}>", component_name);
+
     match component_name {
         #[cfg(feature = "azure")]
         MapperName::Az { profile } => Box::new(AzureMapper {
@@ -57,11 +63,15 @@ fn lookup_component(component_name: MapperName) -> Box<dyn TEdgeComponent> {
         MapperName::Aws { profile } => Box::new(AwsMapper {
             profile: read_and_set_var!(profile, "TEDGE_CLOUD_PROFILE"),
         }),
-        MapperName::Collectd => Box::new(CollectdMapper),
         #[cfg(feature = "c8y")]
         MapperName::C8y { profile } => Box::new(CumulocityMapper {
             profile: read_and_set_var!(profile, "TEDGE_CLOUD_PROFILE"),
         }),
+        #[cfg(feature = "tb")]
+        MapperName::Tb { profile } => Box::new(TbMapper {
+            profile: read_and_set_var!(profile, "TEDGE_CLOUD_PROFILE"),
+        }),
+        MapperName::Collectd => Box::new(CollectdMapper),
     }
 }
 
@@ -110,6 +120,12 @@ pub enum MapperName {
         #[clap(long)]
         profile: Option<ProfileName>,
     },
+    #[cfg(feature = "tb")]
+    Tb {
+        /// The cloud profile to use
+        #[clap(long)]
+        profile: Option<ProfileName>,
+    },
     Collectd,
 }
 
@@ -134,6 +150,12 @@ impl fmt::Display for MapperName {
             MapperName::C8y {
                 profile: Some(profile),
             } => write!(f, "tedge-mapper-c8y@{profile}"),
+            #[cfg(feature = "tb")]
+            MapperName::Tb { profile: None } => write!(f, "tedge-mapper-tb"),
+            #[cfg(feature = "tb")]
+            MapperName::Tb {
+                profile: Some(profile),
+            } => write!(f, "tedge-mapper-tb{profile}"),
             MapperName::Collectd => write!(f, "tedge-mapper-collectd"),
         }
     }

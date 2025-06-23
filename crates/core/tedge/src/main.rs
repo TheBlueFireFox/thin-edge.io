@@ -34,6 +34,7 @@ async fn main() -> anyhow::Result<()> {
     let executable_name = executable_name();
 
     let opt = parse_multicall(&executable_name, std::env::args_os());
+
     match opt {
         TEdgeOptMulticall::Component(Component::TedgeMapper(opt)) => {
             let tedge_config = tedge_config::TEdgeConfig::load(&opt.common.config_dir).await?;

@@ -652,6 +652,12 @@ define_tedge_config! {
         #[tedge_config(example = "te/+/+/+/+/a/+,te/+/+/+/+/m/+,te/+/+/+/+/e/+")]
         #[tedge_config(default(value = "te/+/+/+/+/m/+,te/+/+/+/+/e/+,te/+/+/+/+/a/+,te/+/+/+/+/status/health"))]
         topics: TemplatesSet,
+
+        #[tedge_config(example = "tedge-ee051cf4-591b-4bb2-bd5b-f1d7cb72b188")]
+        user: String,
+
+        #[tedge_config(example = "tedge-ee051cf4-591b-4bb2-bd5b-f1d7cb72b188")]
+        password: String
     },
 
     mqtt: {

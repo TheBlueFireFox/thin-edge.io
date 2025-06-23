@@ -1,7 +1,6 @@
 use crate::core::component::TEdgeComponent;
 use crate::core::mapper::start_basic_actors;
 use crate::core::mqtt::configure_proxy;
-use anyhow::Context;
 use async_trait::async_trait;
 use clock::WallClock;
 use mqtt_channel::TopicFilter;
@@ -88,18 +87,33 @@ async fn runtime_spawn_builtin_bridge(
 
     let rules = built_in_bridge_rules(device_id, prefix)?;
 
+    // TODO: change port
+    // let mut cloud_config = tedge_mqtt_bridge::MqttOptions::new(
+    //     device_id,
+    //     tb_config.url.or_config_not_set()?.to_string(),
+    //     8883,
+    // );
     let mut cloud_config = tedge_mqtt_bridge::MqttOptions::new(
         device_id,
         tb_config.url.or_config_not_set()?.to_string(),
-        8883,
+        1883,
     );
     cloud_config.set_clean_session(false);
     cloud_config.set_keep_alive(tb_config.bridge.keepalive_interval.duration());
 
-    let tls_config = tedge_config
-        .mqtt_client_config_rustls(tb_config)
-        .context("Failed to create MQTT TLS config")?;
-    cloud_config.set_transport(Transport::tls_with_config(tls_config.into()));
+    cloud_config.set_credentials(
+        tb_config.user.or_config_not_set()?,
+        tb_config.password.or_config_not_set()?,
+    );
+
+    // let tls_config = tedge_config
+    //     .mqtt_client_config_rustls(tb_config)
+    //     .context("Failed to create MQTT TLS config")?;
+
+    // TODO: tls
+    // let transport = Transport::tls_with_config(tls_config.into());
+    let transport = Transport::Tcp;
+    cloud_config.set_transport(transport);
 
     configure_proxy(tedge_config, &mut cloud_config)?;
 
@@ -130,31 +144,33 @@ fn get_topic_filter(tb_config: &TEdgeConfigReaderTb) -> TopicFilter {
 }
 
 fn built_in_bridge_rules(
-    remote_client_id: &str,
-    topic_prefix: &TopicPrefix,
+    _remote_client_id: &str,
+    _topic_prefix: &TopicPrefix,
 ) -> Result<BridgeConfig, anyhow::Error> {
-    let local_prefix = format!("{topic_prefix}/");
-    let device_id_prefix = format!("thinedge/{remote_client_id}/");
-    let things_prefix = format!("$aws/things/{remote_client_id}/");
-    let conn_check = format!("thinedge/devices/{remote_client_id}/test-connection");
-    let mut bridge = BridgeConfig::new();
+    Ok(BridgeConfig::new())
+    // let local_prefix = format!("{topic_prefix}/");
+    // let device_id_prefix = format!("thinedge/{remote_client_id}/");
+    // let things_prefix = format!("$tb/things/{remote_client_id}/");
+    // let conn_check = format!("thinedge/devices/{remote_client_id}/test-connection");
+    // let mut bridge = BridgeConfig::new();
 
-    // telemetry/command topics for use by the user
-    bridge.forward_from_local("td/#", local_prefix.clone(), device_id_prefix.clone())?;
-    bridge.forward_from_remote("cmd/#", local_prefix.clone(), device_id_prefix)?;
+    // // telemetry/command topics for use by the user
+    // bridge.forward_from_local("td/#", local_prefix.clone(), device_id_prefix.clone())?;
 
-    // topic to interact with the shadow of the device
-    bridge.forward_bidirectionally("shadow/#", local_prefix.clone(), things_prefix.clone())?;
+    // bridge.forward_from_remote("cmd/#", local_prefix.clone(), device_id_prefix)?;
 
-    // echo topic mapping to check the connection
-    bridge.forward_from_local(
-        "",
-        format!("{local_prefix}test-connection"),
-        conn_check.clone(),
-    )?;
-    bridge.forward_from_remote("", format!("{local_prefix}connection-success"), conn_check)?;
+    // // topic to interact with the shadow of the device
+    // bridge.forward_bidirectionally("shadow/#", local_prefix.clone(), things_prefix.clone())?;
 
-    Ok(bridge)
+    // // echo topic mapping to check the connection
+    // bridge.forward_from_local(
+    //     "",
+    //     format!("{local_prefix}test-connection"),
+    //     conn_check.clone(),
+    // )?;
+    // bridge.forward_from_remote("", format!("{local_prefix}connection-success"), conn_check)?;
+
+    // Ok(bridge)
 }
 
 #[test]
